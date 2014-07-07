@@ -12,6 +12,20 @@ public class TribblerClient {
 
     public static void printSubscriptions(SubscriptionResponse subscriptionResponse, String user)
     {
+        if(subscriptionResponse.status!=TribbleStatus.OK)
+        {
+            System.out.println("\nGetSubscriptions for user: " + user + " failed" + "\n" +subscriptionResponse.status.toString() );
+            return;
+        }
+
+
+        System.out.println("\nuser: "+user +" has " +  subscriptionResponse.getSubscriptionsSize() + " subscriptions");
+
+        for(String userid:subscriptionResponse.getSubscriptions())
+        {
+            System.out.println("\nuser: "+ user+ " subscribed to " + userid);
+        }
+
 
     }
 
