@@ -29,6 +29,8 @@ public class TribblerServer {
         int tribblerPort = Integer.parseInt(args[3]);
         */
 
+        //hard coding values
+
         String storageServer = "sysnet89.sysnet.ucsd.edu";
         int storageServerPort = 7070;
         int tribblerPort = 9090;
@@ -44,7 +46,6 @@ public class TribblerServer {
 
             TSimpleServer server = new TSimpleServer(new TSimpleServer.Args(serverTransport).processor(processor).inputProtocolFactory(protocolFactory).transportFactory(transportFactory));
             server.serve();
-
 
 
         }

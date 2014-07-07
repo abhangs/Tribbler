@@ -20,7 +20,8 @@ public enum TribbleStatus implements org.apache.thrift.TEnum {
   EEXISTS(2),
   INVALID_USER(3),
   INVALID_SUBSCRIBETO(4),
-  NOT_IMPLEMENTED(5);
+  NOT_IMPLEMENTED(5),
+  STORE_FAILED(6);
 
   private final int value;
 
@@ -51,6 +52,8 @@ public enum TribbleStatus implements org.apache.thrift.TEnum {
         return INVALID_SUBSCRIBETO;
       case 5:
         return NOT_IMPLEMENTED;
+      case 6:
+        return STORE_FAILED;
       default:
         return null;
     }
