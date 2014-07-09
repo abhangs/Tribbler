@@ -1,22 +1,19 @@
 package src;
 
 
+import com.google.gson.Gson;
 import include.KeyValueStore.GetListResponse;
 import include.KeyValueStore.GetResponse;
 import include.KeyValueStore.KVStoreStatus;
 import include.KeyValueStore.KeyValueStore;
-import include.Tribbler.SubscriptionResponse;
-import include.Tribbler.TribbleResponse;
-import include.Tribbler.TribbleStatus;
-import include.Tribbler.Tribbler;
+import include.Tribbler.*;
 import org.apache.thrift.TException;
-import org.apache.thrift.transport.TFileTransport;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.protocol.*;
-import org.apache.thrift.transport.*;
-import org.apache.thrift.server.*;
 import org.apache.thrift.transport.TTransport;
-import org.apache.thrift.transport.TTransportException;
+
+import java.util.Date;
+import java.util.List;
 
 public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
 
@@ -27,7 +24,8 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
 
     private String _storageServer;
     private int _storageServerPort;
-
+    private final String UserPrefix = "TribbleUser";
+    private final String SubscriptionPrefix = "TribbleSubscription";
 
     public TribblerHandler(String storageServer, int storageServerPort)
     {
@@ -41,20 +39,119 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     //Note that there is no interface to delete users. A userid can never be re-used.
     @Override
     public TribbleStatus CreateUser(String userid) throws TException {
-        return TribbleStatus.NOT_IMPLEMENTED;
+
+        //key = UserPrefix+userid
+        //Value = TribbleUser.class in json format
+
+        Gson gson = new Gson();
+        GetResponse response = Get(UserPrefix+userid);
+
+        if(response.status!=KVStoreStatus.OK)
+        {
+            return TribbleStatus.STORE_FAILED;
+        }
+
+        TribbleUser tribbleUser =  gson.fromJson(response.getValue(),TribbleUser.class);
+
+        if(tribbleUser.userId == userid)
+        {
+            return TribbleStatus.EEXISTS;
+        }
+
+        TribbleUser newUser = new TribbleUser(userid,new Date());
+
+        String newUserJson = gson.toJson(newUser);
+
+        Put(UserPrefix+userid,newUserJson);
+
+        return TribbleStatus.OK;
     }
 
 
     //server should not allow a user to subscribe to a nonexistent user ID, nor allow a nonexistent user ID to subscribe to anyone.
     @Override
     public TribbleStatus AddSubscription(String userid, String subscribeto) throws TException {
-        return TribbleStatus.NOT_IMPLEMENTED;
+
+        Gson gson = new Gson();
+        TribbleUser requestUser =(Get(UserPrefix+userid)).status!=KVStoreStatus.OK?null:
+                gson.fromJson((Get(UserPrefix+userid)).value,TribbleUser.class);
+
+        TribbleUser subscribeToUser = (Get(UserPrefix+subscribeto)).status!=KVStoreStatus.OK?null:
+                gson.fromJson((Get(UserPrefix+subscribeto)).value,TribbleUser.class);
+
+        if(requestUser==null)
+        {
+            return  TribbleStatus.INVALID_USER;
+        }
+
+        if(subscribeToUser==null)
+        {
+            return TribbleStatus.INVALID_SUBSCRIBETO;
+        }
+
+        GetListResponse listResponse = GetList(SubscriptionPrefix+userid);
+
+        if(listResponse.status!=KVStoreStatus.OK)
+        {
+            if(AddToList(SubscriptionPrefix+userid,UserPrefix+subscribeto)!=KVStoreStatus.OK)
+            {
+                return  TribbleStatus.STORE_FAILED;
+            }
+
+            return TribbleStatus.OK;
+        }
+
+        for(String value:listResponse.getValues())
+        {
+            if(value==UserPrefix+userid)
+            {
+                return TribbleStatus.EEXISTS;
+            }
+        }
+
+        if(AddToList(SubscriptionPrefix+userid,UserPrefix+subscribeto)!=KVStoreStatus.OK)
+        {
+            return  TribbleStatus.STORE_FAILED;
+        }
+
+        return TribbleStatus.OK;
     }
 
 
     @Override
     public TribbleStatus RemoveSubscription(String userid, String subscribeto) throws TException {
-        return null;
+        Gson gson = new Gson();
+        TribbleUser requestUser =(Get(UserPrefix+userid)).status!=KVStoreStatus.OK?null:
+                gson.fromJson((Get(UserPrefix+userid)).value,TribbleUser.class);
+
+        TribbleUser subscribeToUser = (Get(UserPrefix+subscribeto)).status!=KVStoreStatus.OK?null:
+                gson.fromJson((Get(UserPrefix+subscribeto)).value,TribbleUser.class);
+
+        if(requestUser==null)
+        {
+            return  TribbleStatus.INVALID_USER;
+        }
+
+        if(subscribeToUser==null)
+        {
+            return TribbleStatus.INVALID_SUBSCRIBETO;
+        }
+
+        GetListResponse listResponse = GetList(SubscriptionPrefix+userid);
+
+        if(listResponse.status!=KVStoreStatus.OK)
+        {
+
+            return TribbleStatus.INVALID_SUBSCRIBETO;
+        }
+
+        if(RemoveFromList(SubscriptionPrefix+userid,UserPrefix+subscribeto)!=KVStoreStatus.OK)
+        {
+            return TribbleStatus.STORE_FAILED;
+        }
+
+        return TribbleStatus.OK;
+
     }
 
 
@@ -76,15 +173,35 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     //from all the users a particular user has subscribed to
     @Override
     public TribbleResponse GetTribblesBySubscription(String userid) throws TException {
-        return null;
+       return null;
     }
 
     //function lists the users to whom the target user subscribes
     //make sure you not to report subscriptions for nonexistent userID.
     @Override
     public SubscriptionResponse GetSubscriptions(String userid) throws TException {
-        return null;
+        Gson gson = new Gson();
+        TribbleUser requestUser =(Get(UserPrefix+userid)).status!=KVStoreStatus.OK?null:
+                gson.fromJson((Get(UserPrefix+userid)).value,TribbleUser.class);
+
+        if(requestUser==null)
+        {
+            return new SubscriptionResponse(null,TribbleStatus.INVALID_USER);
+        }
+
+        GetListResponse listResponse = GetList(SubscriptionPrefix+userid);
+
+        if(listResponse.status!=KVStoreStatus.OK)
+        {
+            //invalid subscribe to means no subscription available for current user
+            return new SubscriptionResponse(null,TribbleStatus.INVALID_SUBSCRIBETO);
+        }
+
+        SubscriptionResponse response = new SubscriptionResponse(listResponse.getValues(),TribbleStatus.OK);
+        return response;
+
     }
+
 
 
     //Back-end key-value storage server calls.
