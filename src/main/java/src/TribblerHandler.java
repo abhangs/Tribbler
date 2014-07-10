@@ -72,21 +72,19 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     @Override
     public TribbleStatus AddSubscription(String userid, String subscribeto) throws TException {
 
-        Gson gson = new Gson();
-        TribbleUser requestUser =(Get(UserPrefix+userid)).status!=KVStoreStatus.OK?null:
-                gson.fromJson((Get(UserPrefix+userid)).value,TribbleUser.class);
+        //Gson gson = new Gson();
+        GetResponse userResponse = Get(UserPrefix+userid);
 
-        TribbleUser subscribeToUser = (Get(UserPrefix+subscribeto)).status!=KVStoreStatus.OK?null:
-                gson.fromJson((Get(UserPrefix+subscribeto)).value,TribbleUser.class);
-
-        if(requestUser==null)
+        if(userResponse.status!=KVStoreStatus.OK)
         {
             return  TribbleStatus.INVALID_USER;
         }
 
-        if(subscribeToUser==null)
+        GetResponse subscriberResponse = Get(UserPrefix+subscribeto);
+
+        if(subscriberResponse.status!=KVStoreStatus.OK)
         {
-            return TribbleStatus.INVALID_SUBSCRIBETO;
+            return  TribbleStatus.INVALID_SUBSCRIBETO;
         }
 
         GetListResponse listResponse = GetList(SubscriptionPrefix+userid);
@@ -121,20 +119,18 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     @Override
     public TribbleStatus RemoveSubscription(String userid, String subscribeto) throws TException {
         Gson gson = new Gson();
-        TribbleUser requestUser =(Get(UserPrefix+userid)).status!=KVStoreStatus.OK?null:
-                gson.fromJson((Get(UserPrefix+userid)).value,TribbleUser.class);
+        GetResponse userResponse = Get(UserPrefix+userid);
 
-        TribbleUser subscribeToUser = (Get(UserPrefix+subscribeto)).status!=KVStoreStatus.OK?null:
-                gson.fromJson((Get(UserPrefix+subscribeto)).value,TribbleUser.class);
-
-        if(requestUser==null)
+        if(userResponse.status!=KVStoreStatus.OK)
         {
             return  TribbleStatus.INVALID_USER;
         }
 
-        if(subscribeToUser==null)
+        GetResponse subscriberResponse = Get(UserPrefix+subscribeto);
+
+        if(subscriberResponse.status!=KVStoreStatus.OK)
         {
-            return TribbleStatus.INVALID_SUBSCRIBETO;
+            return  TribbleStatus.INVALID_SUBSCRIBETO;
         }
 
         GetListResponse listResponse = GetList(SubscriptionPrefix+userid);
@@ -159,6 +155,9 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     //Non-existing user IDs should not be allowed to post or read tribbles
     @Override
     public TribbleStatus PostTribble(String userid, String tribbleContents) throws TException {
+
+
+
         return null;
     }
 
