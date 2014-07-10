@@ -7,12 +7,15 @@ import include.KeyValueStore.GetResponse;
 import include.KeyValueStore.KVStoreStatus;
 import include.KeyValueStore.KeyValueStore;
 import include.Tribbler.*;
+
 import org.apache.thrift.TException;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.protocol.*;
 import org.apache.thrift.transport.TTransport;
 
+
 import java.util.Date;
+import java.util.LinkedList;
 import java.util.List;
 
 public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
@@ -26,6 +29,10 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     private int _storageServerPort;
     private final String UserPrefix = "TribbleUser";
     private final String SubscriptionPrefix = "TribbleSubscription";
+    private final String TribblePrefix = "UserTribble";
+
+    private final int MAXRetrievalLimit = 100;
+
 
     public TribblerHandler(String storageServer, int storageServerPort)
     {
@@ -53,7 +60,7 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
 
         TribbleUser tribbleUser =  gson.fromJson(response.getValue(),TribbleUser.class);
 
-        if(tribbleUser.userId == userid)
+        if(tribbleUser.userId.equals(userid))
         {
             return TribbleStatus.EEXISTS;
         }
@@ -101,7 +108,7 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
 
         for(String value:listResponse.getValues())
         {
-            if(value==UserPrefix+userid)
+            if(value.equals(UserPrefix + userid))
             {
                 return TribbleStatus.EEXISTS;
             }
@@ -118,7 +125,7 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
 
     @Override
     public TribbleStatus RemoveSubscription(String userid, String subscribeto) throws TException {
-        Gson gson = new Gson();
+       // Gson gson = new Gson();
         GetResponse userResponse = Get(UserPrefix+userid);
 
         if(userResponse.status!=KVStoreStatus.OK)
@@ -156,23 +163,147 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     @Override
     public TribbleStatus PostTribble(String userid, String tribbleContents) throws TException {
 
+        GetResponse userResponse = Get(UserPrefix+userid);
+        if(userResponse.status!=KVStoreStatus.OK)
+        {
+            return TribbleStatus.INVALID_USER;
+        }
+        Gson gson = new Gson();
 
+        TribbleUser tribbleUser = gson.fromJson(userResponse.getValue(),TribbleUser.class);
 
-        return null;
+        //convert date to long
+        long currentTime = new Date().getTime();
+        tribbleUser.tribbleDateList.addLast(currentTime);
+
+        Tribble newTribble = new Tribble(userid,currentTime,tribbleContents);
+
+        String key = TribblePrefix+userid+currentTime;
+
+        KVStoreStatus storeStatus = Put(key,gson.toJson(newTribble));
+
+        if(storeStatus!=KVStoreStatus.OK)
+        {
+            return TribbleStatus.STORE_FAILED;
+        }
+
+        return TribbleStatus.OK;
     }
 
     //Basic function, retrieves a list of most recent tribbles by a particular user,
     //retrieved in reverse chronological order with most recent first, up to 100 max
     @Override
     public TribbleResponse GetTribbles(String userid) throws TException {
-        return null;
-    }
 
+        GetResponse userResponse = Get(UserPrefix+userid);
+        if(userResponse.status!=KVStoreStatus.OK)
+        {
+            return new TribbleResponse(null,TribbleStatus.INVALID_USER);
+        }
+
+        Gson gson = new Gson();
+        TribbleUser tribbleUser = gson.fromJson(userResponse.getValue(),TribbleUser.class);
+
+        int numberOfTribbles = tribbleUser.tribbleDateList.size();
+
+        TribbleResponse tribbleResponse = new TribbleResponse();
+        Object tribbleArray[] =  tribbleUser.tribbleDateList.toArray();
+
+        try{
+
+        for(int i=0;i<numberOfTribbles&&i<MAXRetrievalLimit;i++)
+        {
+           GetResponse getResponse = Get(TribblePrefix+userid+tribbleArray[i]);
+
+           if(getResponse.status!= KVStoreStatus.OK )
+           {
+               tribbleResponse.status = TribbleStatus.STORE_FAILED;
+               return  tribbleResponse;
+           }
+
+           Tribble tribble = gson.fromJson(getResponse.getValue(),Tribble.class);
+           tribbleResponse.addToTribbles(tribble);
+        }
+
+        }catch (Exception ex)
+        {
+            tribbleResponse.status = TribbleStatus.STORE_FAILED;
+            return  tribbleResponse;
+        }
+
+        return tribbleResponse;
+
+    }
     //Retrieve a max of 100 most recent tribbles in reverse chronological order
     //from all the users a particular user has subscribed to
     @Override
     public TribbleResponse GetTribblesBySubscription(String userid) throws TException {
-       return null;
+
+        GetResponse userResponse = Get(UserPrefix+userid);
+        if(userResponse.status!=KVStoreStatus.OK)
+        {
+            return new TribbleResponse(null,TribbleStatus.INVALID_USER);
+        }
+
+        Gson gson = new Gson();
+
+        GetListResponse subscriptionRetrievalResponse = GetList(SubscriptionPrefix+userid);
+
+        if(subscriptionRetrievalResponse.status!=KVStoreStatus.OK)
+        {
+            //NOT_IMPLEMENTED means user has not subscribed to any other user
+            return new TribbleResponse(null,TribbleStatus.NOT_IMPLEMENTED);
+        }
+
+        List<TribbleUser> tribbleUserList = new LinkedList<TribbleUser>();
+        TribbleResponse tribbleResponse = new TribbleResponse();
+
+        try{
+
+            for(String key:subscriptionRetrievalResponse.getValues())
+            {
+               GetResponse getResponse = Get(key);
+               if(getResponse.status!=KVStoreStatus.OK)
+               {
+                   return new TribbleResponse(null,TribbleStatus.STORE_FAILED);
+               }
+
+               tribbleUserList.add(gson.fromJson(getResponse.getValue(),TribbleUser.class));
+            }
+
+            int i =0;
+
+            for(TribbleUser user:tribbleUserList)
+            {
+                if(i>99)
+                {
+                    tribbleResponse.status = TribbleStatus.OK;
+                    return tribbleResponse;
+                }
+
+                for(Long date:user.tribbleDateList)
+                {
+                    GetResponse getResponse = Get(TribblePrefix+user.userId+date);
+                    if(getResponse.status!=KVStoreStatus.OK)
+                    {
+                        tribbleResponse.status = TribbleStatus.STORE_FAILED;
+                        return tribbleResponse;
+                    }
+
+                    tribbleResponse.addToTribbles(gson.fromJson(getResponse.getValue(),Tribble.class));
+                    i++;
+                }
+            }
+
+
+
+        }catch (Exception ex)
+        {
+            return new TribbleResponse(null,TribbleStatus.STORE_FAILED);
+        }
+
+        tribbleResponse.status = TribbleStatus.OK;
+        return tribbleResponse;
     }
 
     //function lists the users to whom the target user subscribes
