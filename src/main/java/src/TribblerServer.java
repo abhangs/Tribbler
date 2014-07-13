@@ -31,8 +31,8 @@ public class TribblerServer {
 
         //hard coding values
 
-        String storageServer = "sysnet89.sysnet.ucsd.edu";
-        int storageServerPort = 7070;
+        String storageServer = "localhost";
+        int storageServerPort = 9092;
         int tribblerPort = 9090;
 
 

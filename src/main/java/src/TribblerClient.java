@@ -159,7 +159,7 @@ public class TribblerClient {
         }
         catch (Exception ex)
         {
-                int i = 10;
+             System.out.println("\n"+ex.getMessage());
         }
 
     }

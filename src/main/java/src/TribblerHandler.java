@@ -12,8 +12,10 @@ import org.apache.thrift.TException;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.protocol.*;
 import org.apache.thrift.transport.TTransport;
+import sun.print.resources.serviceui_pt_BR;
 
 
+import java.nio.channels.NonReadableChannelException;
 import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
@@ -50,28 +52,40 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
         //key = UserPrefix+userid
         //Value = TribbleUser.class in json format
 
-        Gson gson = new Gson();
-        GetResponse response = Get(UserPrefix+userid);
-
-        if(response.status!=KVStoreStatus.OK)
+        try
         {
-            return TribbleStatus.STORE_FAILED;
+                Gson gson = new Gson();
+                GetResponse response = Get(UserPrefix+userid);
+
+                if(response.status==KVStoreStatus.EPUTFAILED)
+                {
+                    return TribbleStatus.STORE_FAILED;
+                }
+
+                if(response.status==KVStoreStatus.EITEMNOTFOUND)
+                {
+                    TribbleUser newUser = new TribbleUser(userid,new Date());
+
+                    String newUserJson = gson.toJson(newUser);
+
+                    Put(UserPrefix+userid,newUserJson);
+
+                    return TribbleStatus.OK;
+                }
+
+                TribbleUser tribbleUser =  gson.fromJson(response.getValue(),TribbleUser.class);
+
+                if(tribbleUser.userId.equals(userid))
+                {
+                    return TribbleStatus.EEXISTS;
+                }
+
+            throw new Exception();
         }
-
-        TribbleUser tribbleUser =  gson.fromJson(response.getValue(),TribbleUser.class);
-
-        if(tribbleUser.userId.equals(userid))
+        catch (Exception ex)
         {
-            return TribbleStatus.EEXISTS;
+              return TribbleStatus.STORE_FAILED;
         }
-
-        TribbleUser newUser = new TribbleUser(userid,new Date());
-
-        String newUserJson = gson.toJson(newUser);
-
-        Put(UserPrefix+userid,newUserJson);
-
-        return TribbleStatus.OK;
     }
 
 
@@ -79,82 +93,94 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     @Override
     public TribbleStatus AddSubscription(String userid, String subscribeto) throws TException {
 
-        //Gson gson = new Gson();
-        GetResponse userResponse = Get(UserPrefix+userid);
 
-        if(userResponse.status!=KVStoreStatus.OK)
-        {
-            return  TribbleStatus.INVALID_USER;
-        }
+         try{
 
-        GetResponse subscriberResponse = Get(UserPrefix+subscribeto);
+            GetResponse userResponse = Get(UserPrefix+userid);
 
-        if(subscriberResponse.status!=KVStoreStatus.OK)
-        {
-            return  TribbleStatus.INVALID_SUBSCRIBETO;
-        }
+            if(userResponse.status==KVStoreStatus.EITEMNOTFOUND)
+            {
+                return  TribbleStatus.INVALID_USER;
+            }
 
-        GetListResponse listResponse = GetList(SubscriptionPrefix+userid);
+            GetResponse subscriberResponse = Get(UserPrefix+subscribeto);
 
-        if(listResponse.status!=KVStoreStatus.OK)
-        {
+            if(subscriberResponse.status==KVStoreStatus.EITEMNOTFOUND)
+            {
+                return  TribbleStatus.INVALID_SUBSCRIBETO;
+            }
+
+            GetListResponse listResponse = GetList(SubscriptionPrefix+userid);
+
+            if(listResponse.status==KVStoreStatus.EITEMNOTFOUND)
+            {
+                if(AddToList(SubscriptionPrefix+userid,UserPrefix+subscribeto)!=KVStoreStatus.OK)
+                {
+                    return  TribbleStatus.STORE_FAILED;
+                }
+
+                return TribbleStatus.OK;
+            }
+
+            for(String value:listResponse.getValues())
+            {
+                if(value.equals(UserPrefix + userid))
+                {
+                    return TribbleStatus.EEXISTS;
+                }
+            }
+
             if(AddToList(SubscriptionPrefix+userid,UserPrefix+subscribeto)!=KVStoreStatus.OK)
             {
                 return  TribbleStatus.STORE_FAILED;
             }
 
             return TribbleStatus.OK;
-        }
-
-        for(String value:listResponse.getValues())
-        {
-            if(value.equals(UserPrefix + userid))
-            {
-                return TribbleStatus.EEXISTS;
-            }
-        }
-
-        if(AddToList(SubscriptionPrefix+userid,UserPrefix+subscribeto)!=KVStoreStatus.OK)
-        {
-            return  TribbleStatus.STORE_FAILED;
-        }
-
-        return TribbleStatus.OK;
+         }
+         catch (Exception ex)
+         {
+             return TribbleStatus.STORE_FAILED;
+         }
     }
 
 
     @Override
     public TribbleStatus RemoveSubscription(String userid, String subscribeto) throws TException {
-       // Gson gson = new Gson();
-        GetResponse userResponse = Get(UserPrefix+userid);
 
-        if(userResponse.status!=KVStoreStatus.OK)
-        {
-            return  TribbleStatus.INVALID_USER;
+        try{
+           // Gson gson = new Gson();
+            GetResponse userResponse = Get(UserPrefix+userid);
+
+            if(userResponse.status==KVStoreStatus.EITEMNOTFOUND)
+            {
+                return  TribbleStatus.INVALID_USER;
+            }
+
+            GetResponse subscriberResponse = Get(UserPrefix+subscribeto);
+
+            if(subscriberResponse.status==KVStoreStatus.EITEMNOTFOUND)
+            {
+                return  TribbleStatus.INVALID_SUBSCRIBETO;
+            }
+
+            GetListResponse listResponse = GetList(SubscriptionPrefix+userid);
+
+            if(listResponse.status!=KVStoreStatus.OK)
+            {
+                return TribbleStatus.INVALID_SUBSCRIBETO;
+            }
+
+            if(RemoveFromList(SubscriptionPrefix+userid,UserPrefix+subscribeto)!=KVStoreStatus.OK)
+            {
+                return TribbleStatus.STORE_FAILED;
+            }
+
+            return TribbleStatus.OK;
         }
-
-        GetResponse subscriberResponse = Get(UserPrefix+subscribeto);
-
-        if(subscriberResponse.status!=KVStoreStatus.OK)
-        {
-            return  TribbleStatus.INVALID_SUBSCRIBETO;
-        }
-
-        GetListResponse listResponse = GetList(SubscriptionPrefix+userid);
-
-        if(listResponse.status!=KVStoreStatus.OK)
-        {
-
-            return TribbleStatus.INVALID_SUBSCRIBETO;
-        }
-
-        if(RemoveFromList(SubscriptionPrefix+userid,UserPrefix+subscribeto)!=KVStoreStatus.OK)
+        catch (Exception ex)
         {
             return TribbleStatus.STORE_FAILED;
         }
-
-        return TribbleStatus.OK;
-
     }
 
 
@@ -163,31 +189,53 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     @Override
     public TribbleStatus PostTribble(String userid, String tribbleContents) throws TException {
 
-        GetResponse userResponse = Get(UserPrefix+userid);
-        if(userResponse.status!=KVStoreStatus.OK)
+        try
         {
-            return TribbleStatus.INVALID_USER;
+                GetResponse userResponse = Get(UserPrefix+userid);
+                if(userResponse.status==KVStoreStatus.EITEMNOTFOUND)
+                {
+                    return TribbleStatus.INVALID_USER;
+                }
+                Gson gson = new Gson();
+
+                TribbleUser tribbleUser = gson.fromJson(userResponse.getValue(),TribbleUser.class);
+
+                //convert date to long
+                long currentTime = new Date().getTime();
+                tribbleUser.tribbleDateList.addLast(currentTime);
+
+                Tribble newTribble = new Tribble(userid,currentTime,tribbleContents);
+
+                String key = TribblePrefix+userid+currentTime;
+
+                KVStoreStatus storeStatus;
+
+                storeStatus = Put(key,gson.toJson(newTribble));
+
+                if(storeStatus!=KVStoreStatus.OK)
+                {
+                    return TribbleStatus.STORE_FAILED;
+                }
+
+                storeStatus = Put(UserPrefix+userid,gson.toJson(tribbleUser));
+
+                if(storeStatus!=KVStoreStatus.OK)
+                {
+                    //Cannot update USER details after a Tribble has saved against
+                    //the user's name
+                    //MAJOR FAILURE
+
+                    //Tribble previously saved is now lost!!!
+
+                    throw new Exception();
+                }
+
+                return TribbleStatus.OK;
         }
-        Gson gson = new Gson();
-
-        TribbleUser tribbleUser = gson.fromJson(userResponse.getValue(),TribbleUser.class);
-
-        //convert date to long
-        long currentTime = new Date().getTime();
-        tribbleUser.tribbleDateList.addLast(currentTime);
-
-        Tribble newTribble = new Tribble(userid,currentTime,tribbleContents);
-
-        String key = TribblePrefix+userid+currentTime;
-
-        KVStoreStatus storeStatus = Put(key,gson.toJson(newTribble));
-
-        if(storeStatus!=KVStoreStatus.OK)
+        catch (Exception ex)
         {
             return TribbleStatus.STORE_FAILED;
         }
-
-        return TribbleStatus.OK;
     }
 
     //Basic function, retrieves a list of most recent tribbles by a particular user,
@@ -195,42 +243,49 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     @Override
     public TribbleResponse GetTribbles(String userid) throws TException {
 
-        GetResponse userResponse = Get(UserPrefix+userid);
-        if(userResponse.status!=KVStoreStatus.OK)
+        TribbleResponse tribbleResponse;
+        try
         {
-            return new TribbleResponse(null,TribbleStatus.INVALID_USER);
+            GetResponse userResponse = Get(UserPrefix+userid);
+            if(userResponse.status==KVStoreStatus.EITEMNOTFOUND)
+            {
+                return new TribbleResponse(null,TribbleStatus.INVALID_USER);
+            }
+
+            Gson gson = new Gson();
+            TribbleUser tribbleUser = gson.fromJson(userResponse.getValue(),TribbleUser.class);
+
+            int numberOfTribbles = tribbleUser.tribbleDateList.size();
+
+            tribbleResponse = new TribbleResponse();
+
+            Object tribbleArray[] =  tribbleUser.tribbleDateList.toArray();
+
+
+
+            for(int i=0;i<numberOfTribbles&&i<MAXRetrievalLimit;i++)
+            {
+               GetResponse getResponse = Get(TribblePrefix+userid+tribbleArray[i]);
+
+               if(getResponse.status!= KVStoreStatus.OK )
+               {
+                   tribbleResponse.status = TribbleStatus.STORE_FAILED;
+                   return  tribbleResponse;
+               }
+
+               Tribble tribble = gson.fromJson(getResponse.getValue(),Tribble.class);
+               tribbleResponse.addToTribbles(tribble);
+            }
+
+
         }
-
-        Gson gson = new Gson();
-        TribbleUser tribbleUser = gson.fromJson(userResponse.getValue(),TribbleUser.class);
-
-        int numberOfTribbles = tribbleUser.tribbleDateList.size();
-
-        TribbleResponse tribbleResponse = new TribbleResponse();
-        Object tribbleArray[] =  tribbleUser.tribbleDateList.toArray();
-
-        try{
-
-        for(int i=0;i<numberOfTribbles&&i<MAXRetrievalLimit;i++)
+        catch (Exception ex)
         {
-           GetResponse getResponse = Get(TribblePrefix+userid+tribbleArray[i]);
-
-           if(getResponse.status!= KVStoreStatus.OK )
-           {
-               tribbleResponse.status = TribbleStatus.STORE_FAILED;
-               return  tribbleResponse;
-           }
-
-           Tribble tribble = gson.fromJson(getResponse.getValue(),Tribble.class);
-           tribbleResponse.addToTribbles(tribble);
-        }
-
-        }catch (Exception ex)
-        {
-            tribbleResponse.status = TribbleStatus.STORE_FAILED;
+            tribbleResponse = new TribbleResponse(null, TribbleStatus.STORE_FAILED);
             return  tribbleResponse;
         }
 
+        tribbleResponse.setStatus(TribbleStatus.OK);
         return tribbleResponse;
 
     }
@@ -240,7 +295,7 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     public TribbleResponse GetTribblesBySubscription(String userid) throws TException {
 
         GetResponse userResponse = Get(UserPrefix+userid);
-        if(userResponse.status!=KVStoreStatus.OK)
+        if(userResponse.status==KVStoreStatus.EITEMNOTFOUND)
         {
             return new TribbleResponse(null,TribbleStatus.INVALID_USER);
         }
@@ -263,9 +318,9 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
             for(String key:subscriptionRetrievalResponse.getValues())
             {
                GetResponse getResponse = Get(key);
-               if(getResponse.status!=KVStoreStatus.OK)
+               if(getResponse.status==KVStoreStatus.EITEMNOTFOUND)
                {
-                   return new TribbleResponse(null,TribbleStatus.STORE_FAILED);
+                   return new TribbleResponse(null,TribbleStatus.INVALID_SUBSCRIBETO);
                }
 
                tribbleUserList.add(gson.fromJson(getResponse.getValue(),TribbleUser.class));
@@ -311,13 +366,15 @@ public class TribblerHandler implements Tribbler.Iface, KeyValueStore.Iface {
     @Override
     public SubscriptionResponse GetSubscriptions(String userid) throws TException {
         Gson gson = new Gson();
-        TribbleUser requestUser =(Get(UserPrefix+userid)).status!=KVStoreStatus.OK?null:
-                gson.fromJson((Get(UserPrefix+userid)).value,TribbleUser.class);
 
-        if(requestUser==null)
+        GetResponse getResponse = Get(UserPrefix+userid);
+
+        if(getResponse.status==KVStoreStatus.EITEMNOTFOUND)
         {
             return new SubscriptionResponse(null,TribbleStatus.INVALID_USER);
         }
+
+        TribbleUser requestUser = gson.fromJson(getResponse.getValue(),TribbleUser.class);
 
         GetListResponse listResponse = GetList(SubscriptionPrefix+userid);
 
